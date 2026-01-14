@@ -1,65 +1,52 @@
 # AI GitHub Code Reviewer
 
-An AI-powered GitHub bot that automatically reviews pull requests and provides structured, actionable feedback to developers.
+A GitHub App + webhook service that generates pull request review feedback using an LLM and posts it back to the PR when triggered with `/review`.
 
-This tool acts as a first-pass reviewer by analyzing code diffs, identifying potential issues, and suggesting improvements directly inside GitHub pull requests.
+The goal is to automate repetitive review feedback while keeping human reviewers fully in control of when analysis runs.
 
----
+## What it does
 
-## What this tool does
+- Listens for a `/review` comment on a pull request
+- Fetches the PR file diffs from GitHub
+- Sends the diff to an LLM using a structured review prompt
+- Posts a single evolving review comment (updates instead of spamming the PR)
 
-- Listens for pull request events
-- Fetches code diffs from GitHub
-- Sends the changes to an AI reviewer
-- Posts a clear, human-readable review as a PR comment
+## How it works (end to end)
 
-The goal is to reduce review time and improve code quality before human review.
+1. A developer opens a Pull Request
+2. A reviewer comments `/review` on the PR
+3. GitHub sends a webhook event to `POST /webhook/github`
+4. The service:
+   - authenticates as a GitHub App
+   - exchanges a short-lived JWT for an installation access token
+   - fetches PR file patches via the GitHub API
+   - trims the diff to a safe size for prompt limits
+   - requests a structured AI review
+5. The service posts the review as a PR comment and updates it on subsequent runs
 
----
+## Architecture
 
-## Why this exists
+- Node.js + Express webhook server
+- GitHub App authentication (JWT → installation access token)
+- GitHub REST API for fetching PR files and posting comments
+- OpenAI Chat Completions for structured review generation
 
-Code reviews are time-consuming and often repetitive. This tool helps teams by:
+The service is stateless and event-driven, making it easy to run locally or deploy as a lightweight backend service.
 
-- Catching obvious issues early
-- Providing consistent feedback
-- Allowing engineers to focus on higher-level design decisions
+## Local setup
 
-It is designed to assist developers, not replace human reviewers.
-
----
-
-## Tech Stack
+### Prerequisites
 
 - Node.js
-- Express
-- GitHub Webhooks
-- GitHub REST API
-- OpenAI API
+- A GitHub App created and installed on your repository
+- An OpenAI API key
 
----
+### Environment variables
 
-## Project Structure
+Create a `.env` file in the backend directory:
 
+```bash
+backend/.env
 
----
+<!-- demo change to trigger PR review -->
 
-## How it works (high level)
-
-1. A pull request is opened or updated
-2. GitHub sends a webhook event to the server
-3. The server extracts the code diff
-4. The AI analyzes the changes
-5. A review comment is posted back to the PR
-
----
-
-## Status
-
-This project currently implements the backend logic for automated PR reviews and is structured to be extended with additional rules, models, or integrations.
-
----
-
-## Author
-
-Built by Rishitha Muddana
