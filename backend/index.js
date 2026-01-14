@@ -1,4 +1,3 @@
-// AI Code Reviewer – test change for PR review
 require("dotenv").config();
 const express = require("express");
 const fs = require("fs");
@@ -11,17 +10,26 @@ app.use(express.json({ limit: "5mb" }));
 
 const PORT = process.env.PORT || 3000;
 
-// ---------- OpenAI ----------
+/*
+  This service is intentionally kept as a single file for the MVP.
+  It makes the end to end webhook to review flow easy to follow.
+  The logic can be split into modules once the surface area grows.
+*/
+
+// OpenAI client
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ---------- Constants ----------
+// Constants
 const BOT_COMMENT_MARKER = "<!-- AI_CODE_REVIEWER_BOT -->";
 const MODEL_NAME = "gpt-4.1-mini";
 const MAX_DIFF_CHARS = 12000;
 
-// ---------- GitHub helpers ----------
+/*
+  GitHub authentication helpers.
+  GitHub Apps require short lived JWTs to exchange for installation tokens.
+*/
 
 function generateJWT() {
   const privateKey = fs.readFileSync(
@@ -82,9 +90,14 @@ async function listComments(owner, repo, pullNumber, token) {
   return res.data;
 }
 
+/*
+  Ensures the bot posts a single evolving comment instead of spamming the PR.
+*/
 async function upsertBotComment(owner, repo, pullNumber, body, token) {
   const comments = await listComments(owner, repo, pullNumber, token);
-  const existing = comments.find(c => c.body.includes(BOT_COMMENT_MARKER));
+  const existing = comments.find(c =>
+    c.body && c.body.includes(BOT_COMMENT_MARKER)
+  );
 
   if (existing) {
     await axios.patch(
@@ -92,26 +105,28 @@ async function upsertBotComment(owner, repo, pullNumber, body, token) {
       { body },
       { headers: { Authorization: `token ${token}` } }
     );
-    console.log("Updated existing AI comment");
+    console.log("Updated existing AI review comment");
   } else {
     await axios.post(
       `https://api.github.com/repos/${owner}/${repo}/issues/${pullNumber}/comments`,
       { body },
       { headers: { Authorization: `token ${token}` } }
     );
-    console.log("Created new AI comment");
+    console.log("Created new AI review comment");
   }
 }
 
-// ---------- AI ----------
-
+/*
+  Generates an AI review from the PR diff.
+  The diff is trimmed to avoid oversized prompts.
+*/
 async function generateAIReview({ owner, repo, prNumber, diffText }) {
   const trimmed =
     diffText.length > MAX_DIFF_CHARS
       ? diffText.slice(0, MAX_DIFF_CHARS)
       : diffText;
 
-  console.log("🤖 Running AI review");
+  console.log("Running AI review");
 
   try {
     const response = await openai.chat.completions.create({
@@ -121,21 +136,21 @@ async function generateAIReview({ owner, repo, prNumber, diffText }) {
         {
           role: "system",
           content:
-            "You are a senior engineer reviewing a GitHub PR. Be concise, practical, and actionable.",
+            "You are a senior software engineer reviewing a pull request. Focus on correctness, clarity, and maintainability. Be concise and actionable.",
         },
         {
           role: "user",
           content: `
-Repo: ${owner}/${repo}
-PR: #${prNumber}
+Repository: ${owner}/${repo}
+Pull Request: #${prNumber}
 
 Diff:
 ${trimmed}
 
-Return markdown with:
-### Summary
-### Issues
-### Suggestions`,
+Return markdown with the following sections:
+Summary
+Issues
+Suggestions`,
         },
       ],
     });
@@ -143,20 +158,24 @@ Return markdown with:
     return response.choices[0].message.content;
   } catch (err) {
     console.error("OpenAI error:", err.message);
-    return "AI review could not be completed due to a temporary error. Please try again later.";
+    return "AI review could not be completed at this time.";
   }
 }
 
-// ---------- Routes ----------
-
+/*
+  GitHub webhook endpoint.
+  Listens for a /review comment on a pull request.
+*/
 app.post("/webhook/github", async (req, res) => {
-  console.log("📩 Webhook received");
+  console.log("Webhook received");
+
   const eventType = req.headers["x-github-event"];
+  const action = req.body.action;
+
   console.log("Event:", eventType);
-  console.log("Action:", req.body.action);
+  console.log("Action:", action);
 
   if (eventType === "ping") {
-    console.log("Ping received");
     return res.status(200).send("pong");
   }
 
@@ -168,10 +187,8 @@ app.post("/webhook/github", async (req, res) => {
   }
 
   const commentBody = req.body.comment?.body?.trim();
-  console.log("Normalized comment body:", commentBody);
 
   if (commentBody !== "/review") {
-    console.log("Not a /review command, ignoring");
     return res.status(200).send("Ignored");
   }
 
@@ -182,9 +199,7 @@ app.post("/webhook/github", async (req, res) => {
     ? req.body.issue.number
     : req.body.pull_request.number;
 
-  console.log("/review command detected");
-  console.log("Repo:", `${owner}/${repo}`);
-  console.log("PR #:", pullNumber);
+  console.log("Review triggered for", `${owner}/${repo}`, "PR", pullNumber);
 
   const token = await getInstallationToken();
   const files = await fetchPullRequestFiles(owner, repo, pullNumber, token);
@@ -201,14 +216,14 @@ app.post("/webhook/github", async (req, res) => {
   });
 
   const body = `${BOT_COMMENT_MARKER}
-## 🤖 AI Code Review
+## AI Code Review
 
 ${review}
 
----
-_Triggered via /review_`;
+Triggered via /review`;
 
   await upsertBotComment(owner, repo, pullNumber, body, token);
+
   return res.status(200).send("Reviewed");
 });
 
