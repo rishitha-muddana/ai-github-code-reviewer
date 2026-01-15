@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 
 /*
   This service is intentionally kept as a single file for the MVP.
-  It makes the end to end webhook to review flow easy to follow.
+  It makes the end-to-end webhook-to-review flow easy to follow.
   The logic can be split into modules once the surface area grows.
 */
 
@@ -28,7 +28,7 @@ const MAX_DIFF_CHARS = 12000;
 
 /*
   GitHub authentication helpers.
-  GitHub Apps require short lived JWTs to exchange for installation tokens.
+  GitHub Apps require short-lived JWTs to exchange for installation tokens.
 */
 
 function generateJWT() {
@@ -95,8 +95,8 @@ async function listComments(owner, repo, pullNumber, token) {
 */
 async function upsertBotComment(owner, repo, pullNumber, body, token) {
   const comments = await listComments(owner, repo, pullNumber, token);
-  const existing = comments.find(c =>
-    c.body && c.body.includes(BOT_COMMENT_MARKER)
+  const existing = comments.find(
+    c => c.body && c.body.includes(BOT_COMMENT_MARKER)
   );
 
   if (existing) {
@@ -131,12 +131,12 @@ async function generateAIReview({ owner, repo, prNumber, diffText }) {
   try {
     const response = await openai.chat.completions.create({
       model: MODEL_NAME,
-      temperature: 0.2,
+      temperature: 0.15,
       messages: [
         {
           role: "system",
           content:
-            "You are a senior software engineer reviewing a pull request. Focus on correctness, clarity, and maintainability. Be concise and actionable.",
+            "You are a senior software engineer leaving a quick PR review on GitHub. Write like a human reviewer who is skimming for merge readiness. Be concise, selective, and practical. Avoid onboarding advice, roadmap suggestions, or explaining how the system works unless it blocks merging.",
         },
         {
           role: "user",
@@ -147,10 +147,24 @@ Pull Request: #${prNumber}
 Diff:
 ${trimmed}
 
-Return markdown with the following sections:
+Write a GitHub-style PR review using markdown with the following sections:
+
 Summary
+- 1–2 sentences
+- High-level impression only
+- Written for PR readers, not the author
+
 Issues
-Suggestions`,
+- Only items that should be fixed before merging
+- Skip minor documentation or stylistic preferences
+
+Suggestions
+- At most 1–2 optional, low-effort improvements
+- Only include if they add clear value now
+
+Do not repeat the diff.
+Do not include generic best practices.
+Do not suggest future roadmap items.`,
         },
       ],
     });
